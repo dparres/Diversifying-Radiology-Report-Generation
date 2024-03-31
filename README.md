@@ -24,3 +24,28 @@ pip install opencv-python==4.7.0.72
  [Download vocab.tgt](https://storage.googleapis.com/vilmedic_dataset/checkpoints/RRG/emnlp22_rl_findings_bertscore_128.zip) and update the file paths.py
 
  
+## Training workflow
+Navigate to the 'train' directory and execute the following commands for each stage.
+
+Stage 1 with Negative Log-Likelihood
+```
+python mytrain_nll.py \
+    --exp_name exp1_stage1 \
+    --model_arch SwinBERT9k \
+    --hnm True
+```
+
+Stage 2 with Reinforcement Learning
+```
+python mytrain_rl.py \
+    --exp_name exp1_stage2 \
+    --model_arch SwinBERT9k \
+    --load_weights exp1_stage1/last_model.pt \
+    --hnm True \
+    --scores_weights 0.01,0.495,0.495 \
+    --scores BertScorer,F1RadGraph \
+    --scores_args {},{\"reward_level\":\"partial\"} \
+    --use_nll True \
+    --top_k 0
+```
+
