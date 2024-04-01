@@ -14,7 +14,6 @@ conda activate rrg_env
 pip install vilmedic==1.3.2
 pip3 install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html
 pip install albumentations
-
 ```
 If there is any error related to the CV2 package:
 ```
@@ -25,7 +24,7 @@ pip install opencv-python==4.7.0.72
 
  
 ## Training workflow
-Navigate to the 'train' directory and execute the following commands for each stage.
+Navigate to the `train` directory and execute the following commands for each stage.
 
 Stage 1 with Negative Log-Likelihood
 ```
