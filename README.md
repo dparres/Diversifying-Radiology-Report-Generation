@@ -1,6 +1,6 @@
 # Diversifying-Radiology-Report-Generation
 
-Official implementation of *'Improving Radiology Report Generation Quality and Diversity through Reinforcement Learning and Text Augmentation'*.
+Official implementation of [*'Improving Radiology Report Generation Quality and Diversity through Reinforcement Learning and Text Augmentation'*](https://www.mdpi.com/2306-5354/11/4/351).
 
   ![training_workflow](https://github.com/dparres/Diversifying-Radiology-Report-Generation/assets/114649578/dafd3871-971c-430c-a1ad-3fcf99653d02)
   ![training_workflow](https://github.com/dparres/Diversifying-Radiology-Report-Generation/assets/114649578/8f6d2642-f57b-4381-a3ee-01cf81ac1f94)
@@ -46,5 +46,17 @@ python mytrain_rl.py \
     --scores_args {},{\"reward_level\":\"partial\"} \
     --use_nll True \
     --top_k 0
+```
+
+## BibTeX
+```
+@Article{dparres2024RRG,
+AUTHOR = {Parres, Daniel and Albiol, Alberto and Paredes, Roberto},
+TITLE = {Improving Radiology Report Generation Quality and Diversity through Reinforcement Learning and Text Augmentation},
+JOURNAL = {Bioengineering},
+VOLUME = {11},
+YEAR = {2024},
+DOI = {10.3390/bioengineering11040351}
+}
 ```
 
