@@ -200,11 +200,11 @@ class SCST(nn.Module):
 
         generated_reports_list = []
         reference_reports_list = []
-        for h, r in zip(generated_reports_input_ids, reference_reports_input_ids):
+        for gen_rep, ref_rep in zip(generated_reports_input_ids, reference_reports_input_ids):
             
-            generated_reports_list.append(tokenizer.decode(h, skip_special_tokens=True, clean_up_tokenization_spaces=False))
+            generated_reports_list.append(tokenizer.decode(gen_rep, skip_special_tokens=True, clean_up_tokenization_spaces=False))
 
-            reference_reports_list.append(tokenizer.decode(r, skip_special_tokens=True, clean_up_tokenization_spaces=False))        
+            reference_reports_list.append(tokenizer.decode(ref_rep, skip_special_tokens=True, clean_up_tokenization_spaces=False))        
             
         reward_list = []
         for scorer, scorer_index in zip(self.scorers, self.scorers_index):
