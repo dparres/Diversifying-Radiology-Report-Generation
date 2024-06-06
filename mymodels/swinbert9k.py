@@ -6,10 +6,11 @@ import torch.nn as nn
 import albumentations as A
 from einops import rearrange
 from torchvision import transforms
-from transformers import AutoFeatureExtractor, SwinModel, BertTokenizer
 from transformers.models.bert_generation import BertGenerationConfig, BertGenerationDecoder
+from transformers import AutoFeatureExtractor, SwinModel, BertTokenizer
 
 from paths import VOCAB_PATH, SWINB_IMAGENET22K_WEIGHTS
+from mymodels.beam_search import prepare_inputs_for_generation, _validate_model_kwargs
 
 DICT_DECODER_CONFIG = {
     "is_decoder": True,
@@ -25,21 +26,11 @@ DICT_DECODER_CONFIG = {
     "vocab_size": 9877,
 }
 
-def _validate_model_kwargs(self, model_kwargs):
-    return
-
-def prepare_inputs_for_generation(self, input_ids, past=None, attention_mask=None, **model_kwargs):
-    input_shape = input_ids.shape
-    # if model is used as a decoder in encoder-decoder model, the decoder attention mask is created on the fly
-    if attention_mask is None:
-        attention_mask = input_ids.new_ones(input_shape)
-
-    # cut decoder_input_ids if past is used
-    if past is not None:
-        input_ids = input_ids[:, -1:]
-    return {"input_ids": input_ids, "attention_mask": attention_mask, "past_key_values": past, **model_kwargs}
-
 class SwinBERT9k(nn.Module):
+    """
+    If proto is mentioned in decoder dict, loads pretrained models from proto strings.
+    Otherwise, loads a BertGenerationDecoder model from decoder dict.
+    """
 
     def __init__(self):
         super().__init__()
@@ -147,7 +138,6 @@ class SwinBERT9k(nn.Module):
                     labels=input_ids,
                     **kwargs
                     )
-            
         out = vars(out)
 
         return {"loss": out["loss"]}
@@ -157,8 +147,8 @@ class SwinBERT9k(nn.Module):
 
         # Multi-image forward pass
         num_images = images.shape[1]
-        images = rearrange(images, 'd0 d1 d2 d3 d4 -> (d0 d1) d2 d3 d4')
-        feature = self.encoder(images).last_hidden_state
+        images = rearrange(images, 'd0 d1 d2 d3 d4 -> (d0 d1) d2 d3 d4') # (b 3 3 224 224) -> (bx3 3 224 224)
+        feature = self.encoder(images).last_hidden_state # (bx3 256 1024)
 
         if self.decoder.config.hidden_size != self.encoder.config.hidden_size:
             feature = self.projection(feature)
@@ -175,6 +165,7 @@ class SwinBERT9k(nn.Module):
 
         return feature, feature_mask
 
+    # TODO: use_cache True da fallo?
     def generate(self,  
                  images, images_mask=None, 
                  encoder_outputs=None, 
@@ -188,9 +179,11 @@ class SwinBERT9k(nn.Module):
                  return_dict_in_generate=False,
                  calc_grad=False, **kwargs):
 
+        #put model in eval mode
         self.eval()
         batch_size = images.shape[0]
     
+        #generate
         if calc_grad:
             if encoder_outputs is None:
                 encoder_output, encoder_attention_mask =  self.encode(images, images_mask)
@@ -226,8 +219,9 @@ class SwinBERT9k(nn.Module):
                 if encoder_outputs is None:
                     encoder_output, encoder_attention_mask =  self.encode(images, images_mask)
 
+                inputs_ids = torch.ones((batch_size, 1), dtype=torch.long).to(encoder_output.device) * self.bos_token_id
                 hyps = self.decoder.generate(
-                        input_ids=torch.ones((batch_size, 1), dtype=torch.long).to(encoder_output.device) * self.bos_token_id,
+                        input_ids=inputs_ids,
                         encoder_hidden_states=encoder_output,
                         encoder_attention_mask=encoder_attention_mask,
                         num_return_sequences=num_return_sequences,
@@ -245,8 +239,11 @@ class SwinBERT9k(nn.Module):
                         use_cache=use_cache,
                 )    
 
+            #lenght penalty falta
         self.train()
         outs = hyps
+        #print("hyps: ", hyps.sequences) 
         if tokenizer is not None:
             hyps = [self.tokenizer.decode(h, skip_special_tokens=True, clean_up_tokenization_spaces=False) for h in hyps.sequences]
+        #print("hyps: ", hyps)
         return hyps, outs
