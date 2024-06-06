@@ -111,40 +111,47 @@ class SCST(nn.Module):
             self.scorers_index.append(scorer_index)
 
     def forward_greedy(self, input_ids, images, model, images_mask=None):
-        assert not torch.is_grad_enabled(), "Please add torch.no_grad() decorator"
+        
+        assert not torch.is_grad_enabled(), "Please add torch.no_grad() decorator."
 
-        hyp, out = model.generate(
-            
-            images, images_mask=images_mask,
+        # Forward Greedy
+        _, out = model.generate(
+            images, 
+            images_mask=images_mask,
             max_len=128,
             num_beams=1,
             num_return_sequences=1,
             return_dict_in_generate=True,
             output_scores=True,
             forced_eos_token_id=True,
-            use_cache=True, 
+            use_cache=False, # dpm: esto daba error!
             calc_grad=False,
         )
 
+        # Calculate Greedy Rewards
         greedy_input_ids = out.sequences
-        reward_greedy, hyp_list, ref_list = self.get_reward(greedy_input_ids.detach().data, input_ids, model.tokenizer)
+        reward_greedy, generated_reports_list, reference_reports_list = self.get_reward(greedy_input_ids.detach().data, input_ids, model.tokenizer)
+
         return {
             "reward_greedy": reward_greedy, 
-            "hyp_list": hyp_list, 
-            "ref_list": ref_list
+            "hyp_list": generated_reports_list, 
+            "ref_list": reference_reports_list
             }
 
     def forward_sampling(self, input_ids, attention_mask, reward_greedy, images, model, images_mask=None):
+        
+        assert torch.is_grad_enabled()
 
-        batch_size = input_ids.shape[0]
+        #batch_size = input_ids.shape[0]
+        # Calculate NLL
         if self.use_nll:
             decoder_out = model(input_ids, attention_mask, 
                                         images, images_mask=images_mask)
             nll_loss = decoder_out['loss']
 
-        out, dict_gen = model.generate(
+        # Forward Sampling
+        out, _ = model.generate(
             images, images_mask=images_mask,
-            #tokenizer=tokenizer,
             max_len=128,
             num_beams=1,
             num_return_sequences=1,
@@ -153,28 +160,30 @@ class SCST(nn.Module):
             forced_eos_token_id=True,
             output_scores=True,
             do_sample=True,
-            use_cache=True, # dpm: esto daba error!
+            use_cache=False, #True, # dpm: esto daba error!
             return_dict_in_generate=True,
-
             calc_grad=True,
         )
 
+        # Calculate Report Probabilities from Forward Sampling
         sampled_ids = out.sequences[:, 1:].contiguous()
         logits = torch.stack(out.scores, dim=1)
         logits = F.log_softmax(logits, dim=-1)
         sampled_logits = logits.gather(2, sampled_ids.unsqueeze(-1))
 
-        # Calculate Rewards
-        reward_sampling, hyp_list, _ = self.get_reward(sampled_ids.data, input_ids, model.tokenizer)
+        # Calculate Sampling Rewards  
+        reward_sampling, generated_reports_list, _ = self.get_reward(sampled_ids.data, input_ids, model.tokenizer)
 
-        # Calculate Loss to do Backward using Rewards
+        # Calculate SCST Loss to do Backward using Greedy and Sampling Rewards
         loss, delta_reward, delta_reward_per_metric = scst_loss(sampled_logits,
                                                                 sampled_ids.data,
                                                                 reward_sampling,
                                                                 reward_greedy,
                                                                 # avoid nll_weight if present
                                                                 self.scores_weights[-len(self.scores):],
-                                                                self.pad_token_id)
+                                                                self.pad_token_id
+                                                                )
+        # Add NLL Loss to SCST Loss
         if self.use_nll:
             loss += self.scores_weights[0] * nll_loss
 
@@ -183,26 +192,29 @@ class SCST(nn.Module):
             "delta_reward": delta_reward, 
             "delta_reward_per_metric": delta_reward_per_metric, 
             "reward_sampling": reward_sampling, 
-            "hyp_list": hyp_list, 
+            "hyp_list": generated_reports_list, 
             "nll_loss": nll_loss
             }
 
-    def get_reward(self, rollout_input_ids, input_ids, tokenizer):
+    def get_reward(self, generated_reports_input_ids, reference_reports_input_ids, tokenizer):
 
-        hyp_list = []
-        ref_list = []
-        for h, r in zip(rollout_input_ids, input_ids):
-            hyp_list.append(tokenizer.decode(h, skip_special_tokens=True, clean_up_tokenization_spaces=False))
-            ref_list.append(tokenizer.decode(r, skip_special_tokens=True, clean_up_tokenization_spaces=False))        
+        generated_reports_list = []
+        reference_reports_list = []
+        for h, r in zip(generated_reports_input_ids, reference_reports_input_ids):
             
-        reward = []
+            generated_reports_list.append(tokenizer.decode(h, skip_special_tokens=True, clean_up_tokenization_spaces=False))
+
+            reference_reports_list.append(tokenizer.decode(r, skip_special_tokens=True, clean_up_tokenization_spaces=False))        
+            
+        reward_list = []
         for scorer, scorer_index in zip(self.scorers, self.scorers_index):
 
             try:
-                score_out = scorer(hyp_list, ref_list)
+                score_out = scorer(generated_reports_list, reference_reports_list)
             except:
                 score_out = torch.tensor(0.)
+                print("Except del reward")
 
-            reward.append(score_out)
+            reward_list.append(score_out)
                     
-        return reward, hyp_list, ref_list
+        return reward_list, generated_reports_list, reference_reports_list
