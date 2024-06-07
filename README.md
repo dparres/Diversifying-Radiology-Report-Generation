@@ -8,7 +8,7 @@ Official implementation of [*'Improving Radiology Report Generation Quality and 
 ## Installation
 
 ```
-conda create -n rrg_env python=3.8
+conda create -n rrg_env python=3.9
 conda activate rrg_env
 
 pip install vilmedic==1.3.2
