@@ -7,9 +7,10 @@ import torch.nn as nn
 from tqdm import tqdm
 import multiprocessing
 import torch.optim as optim
+#from radgraph import F1RadGraph
 from torch.utils.data import DataLoader
 
-sys.path.append(os.path.abspath(os.path.join(os.path.abspath(os.getcwd()), os.pardir)))
+sys.path.append(os.path.abspath(os.path.join(os.path.abspath(os.getcwd()), os.pardir))) # "/home/user/RRG/rrg"
 
 from myrl.scst import SCST
 from myscorers.bleu.bleu import Bleu
@@ -29,6 +30,7 @@ torch.set_float32_matmul_precision('medium')
 
 parser = argparse.ArgumentParser(description='Train NLL for RRG.')
 
+# Agrega argumentos posibles
 parser.add_argument('--exp_name', type=str, help='Experiment name.')
 parser.add_argument('--model_arch', type=str, help='Architecture to train')
 parser.add_argument('--load_weights', type=str, default=None, help='Load weights.')
@@ -41,6 +43,7 @@ parser.add_argument('--scores_weights', type=str, default=None, help='Load weigh
 parser.add_argument('--use_nll', type=bool, default=True, help='Use NLL in SCST.')
 parser.add_argument('--top_k', type=int, default=0, help='top_k value.')
 
+# Parsea los argumentos
 args = parser.parse_args()
 
 # Prepare RL args
@@ -54,6 +57,8 @@ scores_args = args.scores_args.split(",")
 for i in range(len(scores_args)):
     scores_args[i] = json.loads(scores_args[i])
 
+
+# Print de los valores de los argumentos
 print(35*'*')
 print('exp_name:', args.exp_name)
 print('model_arch:', args.model_arch)
@@ -111,11 +116,11 @@ scst = SCST(
 # Dataset Class
 ####################################################################
 
-val_dataset = mimic_Dataset(
+test_dataset = mimic_Dataset(
                 transform=model.val_transform, 
                 tokenizer=model.tokenizer,
                 processor=model.processor,
-                partition = "validation"
+                partition = "test"
                 )
 
 train_dataset = mimic_Dataset(
@@ -129,8 +134,8 @@ train_dataset = mimic_Dataset(
 # DataLoader Class
 ####################################################################
 
-batch_size = 2
-accumulate_grad_batches = 12
+batch_size = 2 # 12
+accumulate_grad_batches = 12 # 2
 num_workers = multiprocessing.cpu_count()-1
 print("Num workers", num_workers)
 train_dataloader = DataLoader(
@@ -140,12 +145,12 @@ train_dataloader = DataLoader(
     num_workers=num_workers,
     collate_fn=train_dataset.get_collate_fn())
 
-val_dataloader = DataLoader(
-    val_dataset, 
+test_dataloader = DataLoader(
+    test_dataset, 
     1, 
     shuffle=False, 
     num_workers=num_workers,
-    collate_fn=val_dataset.get_collate_fn())
+    collate_fn=test_dataset.get_collate_fn())
 
 ####################################################################
 # Training settings
@@ -155,7 +160,8 @@ val_dataloader = DataLoader(
 epochs=50
 criterion = nn.NLLLoss()
 optimizer = optim.Adam(model.parameters(), lr=5e-5)
-lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.8) 
+lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.8) 
+#torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=0, factor=0.8)
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -167,6 +173,10 @@ print("Params: ", count_parameters(model))
 
 # Load model in GPU
 model.to(device)
+
+#model = torch.compile(model, mode="reduce-overhead")
+#model = torch.compile(model)
+
 
 best_f1cxb = -9999999.9
 best_rg = -9999999.9
@@ -194,7 +204,7 @@ for epoch in range(epochs):
                 attention_mask  = batch['attention_mask'].to(device)
                 images_mask  = batch['images_mask'].to(device)
                 ids = batch["idx"].to('cpu').numpy()
-
+                
                 # 1 Greedy
                 with torch.no_grad():
                     model.eval()
@@ -237,8 +247,12 @@ for epoch in range(epochs):
                 if args.hnm:
                     multiassign(dict_loss, ids, 
                                     [nll_loss.to('cpu').detach().numpy()])
-
+                # statistics
                 train_loss += nll_loss.item()
+
+                #if steps == 4:
+                #        break
+
                 tepoch.set_description(f'Train Epoch [{epoch}/{epochs-1}] Loss: {nll_loss.item():.4f}')
             
             optimizer.zero_grad()
@@ -295,9 +309,13 @@ for epoch in range(epochs):
                         # zero the parameter gradients
                         optimizer.zero_grad()
 
+                    # statistics
                     train_hnm_loss += nll_loss.item()
+
                     tepoch.set_description(f'HNM Epoch [{epoch}/{epochs-1}] Loss: {nll_loss.item():.4f}')
 
+                    #if steps == 4:
+                    #    break
                 optimizer.zero_grad()
                 
         lr_scheduler.step()
@@ -307,7 +325,7 @@ for epoch in range(epochs):
     l_hyps = []
     model.eval()
     with torch.no_grad():
-        with tqdm(iter(val_dataloader), desc="Epoch " + str(epoch), unit="batch") as tepoch:
+        with tqdm(iter(test_dataloader), desc="Epoch " + str(epoch), unit="batch") as tepoch:
             for steps, batch in enumerate(tepoch):
                 
                 pixel_values = batch['images'].to(device)
@@ -329,10 +347,21 @@ for epoch in range(epochs):
                 reference_reports = batch['text']
 
                 for r, h in zip(reference_reports, generated_reports):
+                    #ref.append(r + "\n")
+                    #gen.append(h + "\n")
+                    #print("ref: \t" + r + "\n")
+                    #print("hyp: \t" + h + "\n")
+                    #print("----------------------")
                     l_refs.append(r)
                     l_hyps.append(h)
 
+                # statistics
                 test_loss += loss.item()
+
+                #if steps == 4:
+                #        print("FIN TEST")
+                #        break
+
                 tepoch.set_description(f'Test Epoch [{epoch}/{epochs-1}] Loss: {loss.item():.4f}')
     
     # Calculate metrics
@@ -346,7 +375,7 @@ for epoch in range(epochs):
         try:
             os.remove(EXP_DIR_PATH + "/best_cxb_" + str(epoch_best_f1cxb) + "_model.pt")
         except OSError as e:
-            print("Nothing is deleted")
+            print("No se ha eliminado nada")
         best_f1cxb = calculated_f1cxb
         epoch_best_f1cxb = epoch
         torch.save(model.state_dict(), EXP_DIR_PATH + "/best_cxb_" + str(epoch) + "_model.pt")
@@ -354,13 +383,13 @@ for epoch in range(epochs):
         try:
             os.remove(EXP_DIR_PATH + "/best_rg_" + str(epoch_best_rg) + "_model.pt")
         except OSError as e:
-            print("Nothing is deleted")
+            print("No se ha eliminado nada")
         best_rg = calculated_rg
         epoch_best_rg = epoch
         torch.save(model.state_dict(), EXP_DIR_PATH + "/best_rg_" + str(epoch) + "_model.pt")
     
     train_loss /= (len(train_dataloader.dataset) / batch_size)
-    test_loss /= len(val_dataloader.dataset)
+    test_loss /= len(test_dataloader.dataset)
     print("\tTrain Loss: ", train_loss)
     print("\tTest Loss: ", test_loss)
 

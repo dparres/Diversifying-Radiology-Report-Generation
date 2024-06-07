@@ -239,11 +239,8 @@ class SwinBERT9k(nn.Module):
                         use_cache=use_cache,
                 )    
 
-            #lenght penalty falta
         self.train()
         outs = hyps
-        #print("hyps: ", hyps.sequences) 
         if tokenizer is not None:
             hyps = [self.tokenizer.decode(h, skip_special_tokens=True, clean_up_tokenization_spaces=False) for h in hyps.sequences]
-        #print("hyps: ", hyps)
         return hyps, outs

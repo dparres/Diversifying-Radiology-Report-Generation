@@ -15,8 +15,10 @@ class BertScorer(nn.Module):
                                         model_type='distilbert-base-uncased',
                                         num_layers=5,
                                         batch_size=64,
+                                        #nthreads=4,
                                         all_layers=False,
                                         idf=False,
+                                        #idf_sents=None,
                                         device='cuda',
                                         lang='en',
                                         rescale_with_baseline=True,
@@ -24,5 +26,6 @@ class BertScorer(nn.Module):
                                         )
     
     def forward(self, hyps, refs):
-        p, r, f = self.mybert_scorer.score(hyps, refs)      
+        p, r, f = self.mybert_scorer.score(hyps, refs)
+        
         return torch.mean(f).item()
